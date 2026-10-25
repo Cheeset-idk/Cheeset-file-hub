@@ -28,4 +28,17 @@ window.GAMES = [
   ["https://humanbenchmark.com/dashboard", "Human Benchmark"],
   ["https://brm.io/matter-js/demo/", "Matter.js Demos"],
   ["https://thebigcb.com/projects/", "Experiments"]
+  ["https://cheeset-idk.github.io/Trauma-lab/", "Trauma Lab"]
+  ["https://cheeset-idk.github.io/SMGwebport/", "Super Mario Galaxy"]
+  ["https://cheeset-idk.github.io/my-portfolio/", "Minecraft 1.26.2"]
+  ["https://cheeset-idk.github.io/geometry-dash-wasm/", "Geometry Dash"]
+  ["https://cheeset-idk.github.io/Slime-rancher/", "Slime Rancher"]
+  ["https://cheeset-idk.github.io/Polytrack/", "Polytrack"]
+  ["https://law-dawg360.github.io/Shapez/shapez/modZ/", "Shapez.io"]
+  ["https://cheeset-idk.github.io/kittens-tycoon/", "Kittens Game"]
+  ["https://skibidi-math.github.io/endoparasitic/", "Endoparasitic"]
+  ["https://cheeset-idk.github.io/FNF-HTML-Port/", "FNF"]
+  ["https://cheeset-idk.github.io/Mindustry/", "Mindustry"]
+  ["https://pelya.github.io/openttd-touch-webapp", "OpenTTD"]
+  ["https://cheeset-idk.github.io/ultrakill-webport/", "Ultrakill (demo)"]
 ];
