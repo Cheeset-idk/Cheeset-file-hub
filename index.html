@@ -1,0 +1,257 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>Quiet Workshop</title>
+<style>
+:root{--bg:#0a0f1e;--panel:#111a33;--line:#22305a;--text:#d6def2;--dim:#8090b4;--moon:#f2d9a0;--glow:#8fb0ff}
+*{box-sizing:border-box}
+html{color-scheme:dark}
+body{margin:0;min-height:100vh;background:radial-gradient(900px 500px at 50% -10%,#16224a,transparent),var(--bg);color:var(--text);font:16px/1.55 system-ui,sans-serif}
+header,nav,main{max-width:900px;margin:0 auto;padding-left:20px;padding-right:20px}
+header{padding-top:40px}
+h1{font:300 clamp(2rem,6vw,3.2rem)/1.1 "Iowan Old Style",Palatino,Georgia,serif;margin:0;color:var(--moon);animation:breathe 9s ease-in-out infinite}
+@keyframes breathe{50%{text-shadow:0 0 28px #f2d9a055}}
+@media(prefers-reduced-motion:reduce){h1{animation:none}}
+.dim{color:var(--dim)}
+header p{margin:.4rem 0 0}
+nav{display:flex;gap:8px;flex-wrap:wrap;align-items:center;padding-top:14px;padding-bottom:10px}
+#tabs{display:flex;gap:6px;flex-wrap:wrap}
+.sp{flex:1}
+button,select,input,textarea{font:inherit;color:inherit}
+button,select{background:var(--panel);border:1px solid var(--line);border-radius:8px;padding:7px 14px;cursor:pointer}
+button:hover:not(:disabled){border-color:var(--glow)}
+button:disabled{opacity:.5;cursor:default}
+:focus-visible{outline:2px solid var(--glow);outline-offset:2px}
+[aria-current=true],[aria-pressed=true]{background:#1b2a58;border-color:var(--glow)}
+input[type=text],input[type=search],textarea{width:100%;background:#0d1429;border:1px solid var(--line);border-radius:8px;padding:8px 12px}
+main{padding-bottom:60px}
+section>*+*{margin-top:12px}
+.row{display:flex;gap:8px;flex-wrap:wrap;align-items:center}
+.row>input,.row>textarea{flex:1;min-width:0}
+#log{max-height:52vh;overflow:auto}
+.m{margin:10px 0;padding:10px 14px;border-radius:10px;white-space:pre-wrap;overflow-wrap:anywhere}
+.m.u{background:#162450;margin-left:12%}
+.m.a{background:var(--panel);margin-right:6%}
+pre{background:#070b17;padding:10px;border-radius:8px;overflow-x:auto;white-space:pre;margin:8px 0}
+details{border:1px solid var(--line);border-radius:8px;padding:8px 14px}
+summary{cursor:pointer}
+.note{display:flex;gap:8px;justify-content:space-between;align-items:center;padding:4px 0;border-bottom:1px solid var(--line)}
+.grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(210px,1fr));gap:10px}
+.tile{display:block;padding:14px;border:1px solid var(--line);border-radius:10px;background:var(--panel);color:inherit;text-decoration:none}
+.tile:hover{border-color:var(--glow)}
+.tile small{display:block;color:var(--dim);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.drop{display:block;border:2px dashed var(--line);border-radius:12px;padding:30px;text-align:center;cursor:pointer}
+.drop:hover,.drop.over{border-color:var(--glow)}
+.drop input{display:none}
+</style></head>
+<body>
+<header><h1>Quiet Workshop</h1>
+<p class="dim">A local AI, a games shelf, and file sharing. The AI runs on your device.</p></header>
+<nav><div id="tabs"></div><span class="sp"></span>
+<select id="timer" aria-label="Fade the sound out after"><option value="0">No sleep timer</option><option value="15">Fade out in 15 min</option><option value="30">Fade out in 30 min</option><option value="60">Fade out in 1 hour</option></select>
+<button id="snd" aria-pressed="false">Ambient sound</button></nav>
+<main></main>
+<script src="games.js"></script>
+<script>
+/* HOW TO EXTEND
+   - Add a game: add one line to games.js (a URL, or [url, "Name"]).
+   - Add a tab: call addModule({id, title, mount(el){...}}) below. mount runs once; el is the tab's page.
+   - Swap the AI engine/models: edit WEBLLM_URL and MODELS inside the 'chat' module. */
+const WEBLLM_URL = "https://cdn.jsdelivr.net/npm/@mlc-ai/web-llm/+esm";
+const PEERJS_URL = "https://cdn.jsdelivr.net/npm/peerjs@1.5.4/dist/peerjs.min.js";
+
+const $ = (s, r = document) => r.querySelector(s);
+const h = (t, a = {}, ...kids) => { const e = document.createElement(t); for (const [k, v] of Object.entries(a)) k in e ? e[k] = v : e.setAttribute(k, v); e.append(...kids); return e; };
+const store = {
+  get: (k, d) => { try { return JSON.parse(localStorage.getItem("qw." + k)) ?? d; } catch { return d; } },
+  set: (k, v) => { try { localStorage.setItem("qw." + k, JSON.stringify(v)); } catch {} }
+};
+const MODULES = [];
+const addModule = m => MODULES.push(m);
+
+/* ---------- Ambient sound (soft synth pad, no audio files) ---------- */
+const snd = { ac: null, g: null, on: false, t: null };
+function sound(on) {
+  if (on) {
+    if (!snd.ac) {
+      const ac = snd.ac = new AudioContext(), g = snd.g = ac.createGain(), f = ac.createBiquadFilter();
+      g.gain.value = 0; f.type = "lowpass"; f.frequency.value = 650; f.connect(g); g.connect(ac.destination);
+      [110, 164.81, 220, 277.18, 329.63].forEach((hz, i) => {
+        const o = ac.createOscillator(), og = ac.createGain();
+        o.frequency.value = hz; o.detune.value = (i - 2) * 4; og.gain.value = .06;
+        o.connect(og).connect(f); o.start();
+      });
+      const l = ac.createOscillator(), lg = ac.createGain();
+      l.frequency.value = .07; lg.gain.value = 300; l.connect(lg).connect(f.frequency); l.start();
+    }
+    snd.ac.resume(); snd.g.gain.cancelScheduledValues(0); snd.g.gain.setTargetAtTime(.8, snd.ac.currentTime, 2);
+    clearTimeout(snd.t); const m = +$("#timer").value; if (m) snd.t = setTimeout(() => sound(false), m * 6e4);
+  } else if (snd.ac) {
+    snd.g.gain.setTargetAtTime(0, snd.ac.currentTime, 6);
+    setTimeout(() => { if (!snd.on) snd.ac.suspend(); }, 20000);
+  }
+  snd.on = on; $("#snd").setAttribute("aria-pressed", on);
+}
+$("#snd").onclick = () => sound(!snd.on);
+$("#timer").onchange = () => { if (snd.on) sound(true); };
+
+/* ---------- Tab: AI (runs locally with WebLLM + WebGPU) ---------- */
+addModule({ id: "chat", title: "AI", mount(el) {
+  const MODELS = {
+    "Qwen2.5-Coder-1.5B-Instruct-q4f16_1-MLC": "Small coder (1.5B, about 1 GB)",
+    "Qwen2.5-Coder-3B-Instruct-q4f16_1-MLC": "Medium coder (3B, about 2 GB)",
+    "Qwen2.5-Coder-7B-Instruct-q4f16_1-MLC": "Large coder (7B, about 5 GB, strong GPU)"
+  };
+  let engine, busy = false; const msgs = [];
+  const sel = h("select", {}, ...Object.entries(MODELS).map(([id, n]) => h("option", { value: id, textContent: n })));
+  const load = h("button", { textContent: "Load model" });
+  const status = h("span", { className: "dim", textContent: "The model downloads once, then stays cached in your browser." });
+  const log = h("div", { id: "log" });
+  const input = h("textarea", { rows: 2, placeholder: "Ask for code, or just talk…", disabled: true });
+  const send = h("button", { textContent: "Send", disabled: true });
+  const stop = h("button", { textContent: "Stop", onclick: () => engine && engine.interruptGenerate() });
+  const copy = h("input", { type: "checkbox", checked: store.get("copy", true), onchange: () => store.set("copy", copy.checked) });
+  const teach = h("textarea", { rows: 3, placeholder: "Teach it something: facts about you, how you code, how you talk, what you like…" });
+  const notesEl = h("div");
+  const renderNotes = () => notesEl.replaceChildren(...store.get("notes", []).map((n, i) =>
+    h("div", { className: "note" }, h("span", { textContent: n }), h("button", { textContent: "Forget", onclick: () => {
+      const a = store.get("notes", []); a.splice(i, 1); store.set("notes", a); renderNotes(); } }))));
+  const teachBtn = h("button", { textContent: "Teach it", onclick: () => {
+    const t = teach.value.trim(); if (!t) return;
+    store.set("notes", [...store.get("notes", []), t]); teach.value = ""; renderNotes(); } });
+  const resetStyle = h("button", { textContent: "Reset style samples", onclick: () => store.set("style", []) });
+
+  const fmt = (box, t) => box.replaceChildren(...t.split("```").map((p, i) =>
+    i % 2 ? h("pre", {}, h("code", { textContent: p.replace(/^[^\n]*\n/, "") })) : document.createTextNode(p)));
+  const add = (who, t) => { const b = h("div", { className: "m " + who }); fmt(b, t); log.append(b); log.scrollTop = log.scrollHeight; return b; };
+  const system = () => {
+    const notes = store.get("notes", []).slice(-30), style = store.get("style", []);
+    return "You are a friendly, capable coding assistant running locally in the user's browser. Give correct, concise code in fenced blocks."
+      + (notes.length ? "\nThings the user taught you (treat as true):\n- " + notes.join("\n- ") : "")
+      + (copy.checked && style.length ? "\nHere is how the user writes. Mirror their tone, slang and habits in casual chat, like a doppelganger, but keep code accurate:\n" + style.map(s => '"' + s + '"').join("\n") : "");
+  };
+
+  load.onclick = async () => {
+    if (!navigator.gpu) { status.textContent = "This browser has no WebGPU. Try a recent Chrome or Edge."; return; }
+    load.disabled = sel.disabled = true;
+    try {
+      const w = await import(WEBLLM_URL);
+      engine = await w.CreateMLCEngine(sel.value, { initProgressCallback: p => status.textContent = p.text });
+      status.textContent = "Ready. Everything runs on your device."; input.disabled = send.disabled = false;
+    } catch (e) { status.textContent = "Could not load: " + e.message + " (Previews block model downloads. Open the hosted site instead.)"; load.disabled = sel.disabled = false; }
+  };
+  async function ask() {
+    const t = input.value.trim(); if (!t || !engine || busy) return;
+    input.value = ""; busy = true;
+    if (!t.includes("```")) store.set("style", [...store.get("style", []), t.slice(0, 240)].slice(-15));
+    msgs.push({ role: "user", content: t }); add("u", t);
+    const out = add("a", "…"); let acc = "";
+    try {
+      const s = await engine.chat.completions.create({ messages: [{ role: "system", content: system() }, ...msgs.slice(-12)], stream: true, temperature: .7 });
+      for await (const c of s) { acc += c.choices[0]?.delta?.content || ""; fmt(out, acc); log.scrollTop = log.scrollHeight; }
+    } catch (e) { acc += (acc ? "\n" : "") + "[" + e.message + "]"; fmt(out, acc); }
+    msgs.push({ role: "assistant", content: acc }); busy = false;
+  }
+  send.onclick = ask;
+  input.onkeydown = e => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); ask(); } };
+  renderNotes();
+  el.append(
+    h("div", { className: "row" }, sel, load, status), log,
+    h("div", { className: "row" }, input, send, stop),
+    h("details", {}, h("summary", { textContent: "Teach the AI about you" }),
+      h("p", { className: "dim", textContent: "It keeps your notes and your recent messages on this device and uses them to copy how you talk. This shapes its prompt; it does not retrain the model." }),
+      h("label", {}, copy, " Copy how I write "), resetStyle, teach, h("div", { className: "row" }, teachBtn), notesEl));
+} });
+
+/* ---------- Tab: Games (reads the list in games.js) ---------- */
+const gameName = (u, n) => {
+  if (n) return n;
+  const x = new URL(u), s = x.pathname.split("/").filter(Boolean).pop() || x.hostname.replace(/^www\./, "");
+  const t = s.replace(/[-_]+/g, " ").trim(); return t[0].toUpperCase() + t.slice(1);
+};
+addModule({ id: "games", title: "Games", mount(el) {
+  const list = (window.GAMES || []).map(g => Array.isArray(g) ? g : [g]);
+  const q = h("input", { type: "search", placeholder: "Search " + list.length + " games and sites…" });
+  const grid = h("div", { className: "grid" });
+  const draw = () => grid.replaceChildren(...list.filter(([u, n]) => (gameName(u, n) + u).toLowerCase().includes(q.value.toLowerCase()))
+    .map(([u, n]) => h("a", { className: "tile", href: u, target: "_blank", rel: "noopener" }, gameName(u, n), h("small", { textContent: new URL(u).hostname }))));
+  q.oninput = draw; draw(); el.append(q, grid);
+} });
+
+/* ---------- Tab: Share files (peer to peer; works on static hosting) ---------- */
+addModule({ id: "share", title: "Share files", mount(el) {
+  const files = new Map(), CH = 64 * 1024; let peer;
+  const rid = () => Math.random().toString(36).slice(2, 10);
+  const msg = h("p", { className: "dim", textContent: "Pick a file, press Share, and send the link. The link downloads straight from this tab, so keep it open while people download." });
+  const rows = h("div");
+  const loadPeer = () => window.Peer ? Promise.resolve() : new Promise((ok, no) =>
+    document.head.append(h("script", { src: PEERJS_URL, onload: ok, onerror: () => no(new Error("Could not load PeerJS")) })));
+  async function pump(c, f) {
+    c.send({ meta: { name: f.name, size: f.size } });
+    for (let o = 0; o < f.size; o += CH) {
+      while (c.dataChannel.bufferedAmount > 4e6) await new Promise(r => setTimeout(r, 50));
+      c.send(await f.slice(o, o + CH).arrayBuffer());
+    }
+    c.send({ done: 1 });
+  }
+  async function host() {
+    await loadPeer(); if (peer) return;
+    peer = new Peer("qw-" + rid() + rid());
+    await new Promise((ok, no) => { peer.on("open", ok); peer.on("error", no); });
+    peer.on("connection", c => c.on("data", m => { const f = files.get(m && m.get); f ? pump(c, f) : c.send({ err: "File not found" }); }));
+  }
+  async function addFiles(list) {
+    try { await host(); } catch (e) { msg.textContent = "Sharing is unavailable: " + (e.message || e.type) + " (Previews block the connection server. Open the hosted site instead.)"; return; }
+    for (const f of list) {
+      const k = rid(), link = location.origin + location.pathname + "?dl=" + peer.id + "&f=" + k; files.set(k, f);
+      const row = h("div", { className: "note" }, h("span", { textContent: f.name + " (" + (f.size / 1048576).toFixed(1) + " MB)" }));
+      row.append(h("button", { textContent: "Share", onclick: async e => {
+        try { await navigator.clipboard.writeText(link); e.target.textContent = "Link copied"; } catch { prompt("Copy this link:", link); } } }),
+        h("button", { textContent: "Remove", onclick: () => { files.delete(k); row.remove(); } }));
+      rows.append(row);
+    }
+  }
+  const pick = h("input", { type: "file", multiple: true, onchange: () => addFiles([...pick.files]) });
+  const drop = h("label", { className: "drop", textContent: "Drop files here or click to choose" }, pick);
+  drop.ondragover = e => { e.preventDefault(); drop.classList.add("over"); };
+  drop.ondragleave = () => drop.classList.remove("over");
+  drop.ondrop = e => { e.preventDefault(); drop.classList.remove("over"); addFiles([...e.dataTransfer.files]); };
+
+  async function receive(id, key) {
+    msg.textContent = "Connecting to the uploader…";
+    try { await loadPeer(); } catch (e) { msg.textContent = e.message; return; }
+    const p = new Peer();
+    p.on("error", e => msg.textContent = e.type === "peer-unavailable" ? "The uploader closed their tab, so this link has expired." : "Error: " + e.message);
+    p.on("open", () => {
+      const c = p.connect(id, { reliable: true }), parts = []; let got = 0, meta;
+      c.on("open", () => c.send({ get: key }));
+      c.on("data", m => {
+        if (m.byteLength !== undefined) { parts.push(m); got += m.byteLength; msg.textContent = "Receiving " + (meta ? meta.name + " " + Math.round(got / meta.size * 100) + "%" : "…"); }
+        else if (m.meta) meta = m.meta;
+        else if (m.err) msg.textContent = m.err;
+        else if (m.done) {
+          const a = h("a", { href: URL.createObjectURL(new Blob(parts)), download: meta.name });
+          document.body.append(a); a.click(); a.remove(); msg.textContent = "Downloaded " + meta.name;
+        }
+      });
+    });
+  }
+  el.append(msg, drop, rows);
+  const q = new URLSearchParams(location.search);
+  if (q.get("dl")) receive(q.get("dl"), q.get("f"));
+} });
+
+/* ---------- Start ---------- */
+const tabs = $("#tabs"), main = $("main");
+MODULES.forEach(m => {
+  m.el = h("section", { hidden: true }); main.append(m.el); m.mount(m.el);
+  m.tab = h("button", { textContent: m.title, onclick: () => location.hash = m.id }); tabs.append(m.tab);
+});
+function show(id) {
+  const cur = MODULES.find(m => m.id === id) || MODULES[0];
+  MODULES.forEach(m => { m.el.hidden = m !== cur; m.tab.setAttribute("aria-current", m === cur); });
+}
+onhashchange = () => show(location.hash.slice(1));
+show(new URLSearchParams(location.search).has("dl") ? "share" : location.hash.slice(1));
+</script>
+</body></html>
